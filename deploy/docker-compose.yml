@@ -1,0 +1,172 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        APP: api
+    env_file:
+      - ../configs/local.env.example
+    environment:
+      HTTP_ADDR: :8080
+      KAFKA_BROKERS: kafka:9092
+      MONGO_URI: mongodb://mongo:27017
+      REDIS_ADDR: redis:6379
+      S3_ENDPOINT: http://minio:9000
+    ports:
+      - "8080:8080"
+    depends_on:
+      mongo:
+        condition: service_started
+      redis:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+      livekit:
+        condition: service_started
+      centrifugo:
+        condition: service_started
+      minio:
+        condition: service_healthy
+      srs:
+        condition: service_started
+
+  worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        APP: worker
+    env_file:
+      - ../configs/local.env.example
+    depends_on:
+      api:
+        condition: service_started
+
+  realtime-dispatcher:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        APP: realtime-dispatcher
+    env_file:
+      - ../configs/local.env.example
+    depends_on:
+      kafka:
+        condition: service_healthy
+      centrifugo:
+        condition: service_started
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+  kafka:
+    image: bitnami/kafka:3.7
+    ports:
+      - "29092:29092"
+    environment:
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+      KAFKA_CFG_NODE_ID: "0"
+      KAFKA_CFG_PROCESS_ROLES: controller,broker
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - kafka-data:/bitnami/kafka
+
+  livekit:
+    image: livekit/livekit-server:v1.8
+    command: ["--config", "/etc/livekit.yaml"]
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-50100:50000-50100/udp"
+    volumes:
+      - ../configs/livekit.yaml:/etc/livekit.yaml:ro
+    depends_on:
+      redis:
+        condition: service_started
+
+  centrifugo:
+    image: centrifugo/centrifugo:v5
+    command: ["centrifugo", "--config", "/centrifugo/config.json"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../configs/centrifugo.config.json:/centrifugo/config.json:ro
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  createbuckets:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin;
+      mc mb --ignore-existing local/wave-cast-media;
+      exit 0;
+      "
+
+  srs:
+    image: ossrs/srs:6
+    command: ["objs/srs", "-c", "/usr/local/srs/conf/srs.conf"]
+    ports:
+      - "1935:1935"
+      - "1985:1985"
+      - "3333:8080"
+    volumes:
+      - ../configs/srs.conf:/usr/local/srs/conf/srs.conf:ro
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    profiles: ["observability"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../configs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+volumes:
+  mongo-data:
+  redis-data:
+  kafka-data:
+  minio-data:

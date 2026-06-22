@@ -1,0 +1,205 @@
+openapi: 3.1.0
+info:
+  title: WaveCast Voice Platform API
+  version: 0.1.0
+  description: REST command surface for the WaveCast voice room backend.
+servers:
+  - url: http://localhost:8080
+paths:
+  /healthz:
+    get:
+      summary: Liveness check
+      responses:
+        "200":
+          description: Healthy
+  /readyz:
+    get:
+      summary: Readiness check
+      responses:
+        "200":
+          description: Ready
+  /v1/rooms:
+    post:
+      summary: Create a room
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRoomRequest"
+      responses:
+        "201":
+          description: Created room
+  /v1/rooms/{roomId}:
+    get:
+      summary: Get a room
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "200":
+          description: Room
+  /v1/rooms/{roomId}/start:
+    post:
+      summary: Start a room
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      requestBody:
+        $ref: "#/components/requestBodies/ActorRequest"
+      responses:
+        "200":
+          description: Started room
+  /v1/rooms/{roomId}/finish:
+    post:
+      summary: Finish a room
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      requestBody:
+        $ref: "#/components/requestBodies/ActorRequest"
+      responses:
+        "200":
+          description: Finished room
+  /v1/rooms/{roomId}/active-counts:
+    get:
+      summary: Get active listener and LiveKit participant counts
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "200":
+          description: Active counts
+  /v1/rooms/{roomId}/join:
+    post:
+      summary: Join as listener or LiveKit speaker role
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      requestBody:
+        $ref: "#/components/requestBodies/UserRequest"
+      responses:
+        "200":
+          description: Join result with listener or speaker media descriptor
+  /v1/rooms/{roomId}/listener-sessions/{sessionId}/heartbeat:
+    post:
+      summary: Record listener heartbeat
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/SessionID"
+      requestBody:
+        $ref: "#/components/requestBodies/UserRequest"
+      responses:
+        "200":
+          description: Updated listener session
+  /v1/rooms/{roomId}/speaker-requests:
+    post:
+      summary: Request to speak
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      requestBody:
+        $ref: "#/components/requestBodies/UserRequest"
+      responses:
+        "201":
+          description: Speaker request
+  /v1/rooms/{roomId}/speaker-requests/{requestId}/approve:
+    post:
+      summary: Approve a speaker request
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        $ref: "#/components/requestBodies/ActorRequest"
+      responses:
+        "200":
+          description: Approved speaker request
+  /v1/rooms/{roomId}/speaker-session:
+    post:
+      summary: Create a LiveKit speaker session after approval
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      requestBody:
+        $ref: "#/components/requestBodies/UserRequest"
+      responses:
+        "200":
+          description: LiveKit speaker descriptor
+  /v1/realtime/token:
+    get:
+      summary: Issue a Centrifugo connection token
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Realtime token
+  /v1/realtime/subscription-token:
+    post:
+      summary: Issue a Centrifugo subscription token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel]
+              properties:
+                userId:
+                  type: string
+                channel:
+                  type: string
+      responses:
+        "200":
+          description: Subscription token
+components:
+  parameters:
+    RoomID:
+      name: roomId
+      in: path
+      required: true
+      schema:
+        type: string
+    SessionID:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBodies:
+    ActorRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              actorUserId:
+                type: string
+              reason:
+                type: string
+    UserRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              userId:
+                type: string
+  schemas:
+    CreateRoomRequest:
+      type: object
+      required: [title, ownerId]
+      properties:
+        title:
+          type: string
+        ownerId:
+          type: string
+        adminIds:
+          type: array
+          items:
+            type: string
+        moderatorIds:
+          type: array
+          items:
+            type: string
