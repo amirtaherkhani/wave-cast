@@ -61,6 +61,9 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 		"speaker_requests": {
 			{Keys: bson.D{{Key: "roomId", Value: 1}, {Key: "userId", Value: 1}, {Key: "status", Value: 1}}},
 		},
+		"speaking_blocks": {
+			{Keys: bson.D{{Key: "roomId", Value: 1}, {Key: "userId", Value: 1}, {Key: "unblockedAt", Value: 1}}},
+		},
 		"room_recordings": {
 			{Keys: bson.D{{Key: "roomId", Value: 1}, {Key: "status", Value: 1}}},
 		},
@@ -70,6 +73,12 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 		"room_events": {
 			{Keys: bson.D{{Key: "roomId", Value: 1}, {Key: "occurredAt", Value: -1}}},
 			{Keys: bson.D{{Key: "eventType", Value: 1}, {Key: "occurredAt", Value: -1}}},
+		},
+		"async_jobs": {
+			{Keys: bson.D{{Key: "status", Value: 1}, {Key: "runAfter", Value: 1}}},
+			{Keys: bson.D{{Key: "idempotencyKey", Value: 1}}, Options: options.Index().SetUnique(true)},
+			{Keys: bson.D{{Key: "lockedUntil", Value: 1}}},
+			{Keys: bson.D{{Key: "type", Value: 1}, {Key: "status", Value: 1}}},
 		},
 	}
 	for collection, models := range indexes {
@@ -102,6 +111,59 @@ func (s *Store) GetListenerSession(ctx context.Context, sessionID string) (*voic
 		return nil, err
 	}
 	return &session, nil
+}
+
+func (s *Store) ListActiveListenerSessions(ctx context.Context, roomID string) ([]*voice.ListenerSession, error) {
+	cursor, err := s.db.Collection("room_listener_sessions").Find(ctx, bson.M{
+		"roomId": roomID,
+		"status": voice.ListenerSessionActive,
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var sessions []*voice.ListenerSession
+	if err := cursor.All(ctx, &sessions); err != nil {
+		return nil, err
+	}
+	return sessions, nil
+}
+
+func (s *Store) ListActiveListenerSessionsByUser(ctx context.Context, roomID, userID string) ([]*voice.ListenerSession, error) {
+	cursor, err := s.db.Collection("room_listener_sessions").Find(ctx, bson.M{
+		"roomId": roomID,
+		"userId": userID,
+		"status": voice.ListenerSessionActive,
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var sessions []*voice.ListenerSession
+	if err := cursor.All(ctx, &sessions); err != nil {
+		return nil, err
+	}
+	return sessions, nil
+}
+
+func (s *Store) ListStaleListenerSessions(ctx context.Context, cutoff time.Time, limit int) ([]*voice.ListenerSession, error) {
+	opts := options.Find().SetSort(bson.D{{Key: "lastHeartbeatAt", Value: 1}})
+	if limit > 0 {
+		opts.SetLimit(int64(limit))
+	}
+	cursor, err := s.db.Collection("room_listener_sessions").Find(ctx, bson.M{
+		"status":          voice.ListenerSessionActive,
+		"lastHeartbeatAt": bson.M{"$lt": cutoff},
+	}, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var sessions []*voice.ListenerSession
+	if err := cursor.All(ctx, &sessions); err != nil {
+		return nil, err
+	}
+	return sessions, nil
 }
 
 func (s *Store) CountActiveListeners(ctx context.Context, roomID string) (int, error) {
@@ -142,6 +204,23 @@ func (s *Store) FindPendingSpeakerRequest(ctx context.Context, roomID, userID st
 
 func (s *Store) FindApprovedSpeakerRequest(ctx context.Context, roomID, userID string) (*voice.SpeakerRequest, error) {
 	return s.findSpeakerRequest(ctx, roomID, userID, voice.SpeakerRequestApproved)
+}
+
+func (s *Store) SaveSpeakingBlock(ctx context.Context, block *voice.SpeakingBlock) error {
+	return s.replace(ctx, "speaking_blocks", block.ID, block)
+}
+
+func (s *Store) GetActiveSpeakingBlock(ctx context.Context, roomID, userID string) (*voice.SpeakingBlock, error) {
+	var block voice.SpeakingBlock
+	err := s.findOne(ctx, "speaking_blocks", bson.M{
+		"roomId":      roomID,
+		"userId":      userID,
+		"unblockedAt": bson.M{"$exists": false},
+	}, &block, apperrors.ErrSpeakingBlockNotFound)
+	if err != nil {
+		return nil, err
+	}
+	return &block, nil
 }
 
 func (s *Store) SaveRecording(ctx context.Context, recording *voice.RoomRecording) error {

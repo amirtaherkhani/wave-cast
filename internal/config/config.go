@@ -21,6 +21,7 @@ type Config struct {
 	Listener      ListenerConfig
 	Recording     RecordingConfig
 	S3            S3Config
+	Async         AsyncConfig
 }
 
 type HTTPConfig struct {
@@ -34,6 +35,7 @@ type MongoConfig struct {
 }
 
 type RedisConfig struct {
+	Enabled  bool
 	Addr     string
 	Password string
 	DB       int
@@ -97,6 +99,21 @@ type S3Config struct {
 	PresignedURLTTL  time.Duration
 }
 
+type AsyncConfig struct {
+	WorkerEnabled                  bool
+	WorkerConcurrency              int
+	JobMaxAttempts                 int
+	JobVisibilityTimeout           time.Duration
+	JobRetryBaseDelay              time.Duration
+	JobRetryMaxDelay               time.Duration
+	JobLockTTL                     time.Duration
+	JobDeadLetterEnabled           bool
+	SchedulerEnabled               bool
+	ExpireListenerSessionsInterval time.Duration
+	ExpireRecordingsInterval       time.Duration
+	SyncRoomCountsInterval         time.Duration
+}
+
 func Load() Config {
 	return Config{
 		Env:           str("APP_ENV", "local"),
@@ -111,6 +128,7 @@ func Load() Config {
 			Database: str("MONGO_DATABASE", "wave_cast"),
 		},
 		Redis: RedisConfig{
+			Enabled:  boolean("REDIS_ENABLED", false),
 			Addr:     str("REDIS_ADDR", "localhost:6379"),
 			Password: str("REDIS_PASSWORD", ""),
 			DB:       integer("REDIS_DB", 0),
@@ -165,6 +183,20 @@ func Load() Config {
 			SecretAccessKey:  str("S3_SECRET_ACCESS_KEY", "minioadmin"),
 			RecordingsPrefix: str("S3_RECORDINGS_PREFIX", "recordings"),
 			PresignedURLTTL:  seconds("S3_PRESIGNED_URL_TTL_SECONDS", 900),
+		},
+		Async: AsyncConfig{
+			WorkerEnabled:                  boolean("ASYNC_WORKER_ENABLED", true),
+			WorkerConcurrency:              integer("ASYNC_WORKER_CONCURRENCY", 10),
+			JobMaxAttempts:                 integer("ASYNC_JOB_MAX_ATTEMPTS", 5),
+			JobVisibilityTimeout:           seconds("ASYNC_JOB_VISIBILITY_TIMEOUT_SECONDS", 300),
+			JobRetryBaseDelay:              seconds("ASYNC_JOB_RETRY_BASE_DELAY_SECONDS", 5),
+			JobRetryMaxDelay:               seconds("ASYNC_JOB_RETRY_MAX_DELAY_SECONDS", 300),
+			JobLockTTL:                     seconds("ASYNC_JOB_LOCK_TTL_SECONDS", 300),
+			JobDeadLetterEnabled:           boolean("ASYNC_JOB_DEAD_LETTER_ENABLED", true),
+			SchedulerEnabled:               boolean("ASYNC_SCHEDULER_ENABLED", true),
+			ExpireListenerSessionsInterval: seconds("ASYNC_EXPIRE_LISTENER_SESSIONS_INTERVAL_SECONDS", 30),
+			ExpireRecordingsInterval:       seconds("ASYNC_EXPIRE_RECORDINGS_INTERVAL_SECONDS", 3600),
+			SyncRoomCountsInterval:         seconds("ASYNC_SYNC_ROOM_COUNTS_INTERVAL_SECONDS", 60),
 		},
 	}
 }

@@ -17,6 +17,7 @@ type Store struct {
 	listenerSessions    map[string]*voice.ListenerSession
 	participantSessions map[string]*voice.ParticipantSession
 	speakerRequests     map[string]*voice.SpeakerRequest
+	speakingBlocks      map[string]*voice.SpeakingBlock
 	recordings          map[string]*voice.RoomRecording
 	reportsByRoom       map[string]*voice.RoomReport
 	events              []*voice.EventEnvelope
@@ -28,6 +29,7 @@ func NewStore() *Store {
 		listenerSessions:    map[string]*voice.ListenerSession{},
 		participantSessions: map[string]*voice.ParticipantSession{},
 		speakerRequests:     map[string]*voice.SpeakerRequest{},
+		speakingBlocks:      map[string]*voice.SpeakingBlock{},
 		recordings:          map[string]*voice.RoomRecording{},
 		reportsByRoom:       map[string]*voice.RoomReport{},
 		events:              []*voice.EventEnvelope{},
@@ -70,6 +72,48 @@ func (s *Store) GetListenerSession(_ context.Context, sessionID string) (*voice.
 	}
 	copy := *session
 	return &copy, nil
+}
+
+func (s *Store) ListActiveListenerSessions(_ context.Context, roomID string) ([]*voice.ListenerSession, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []*voice.ListenerSession{}
+	for _, session := range s.listenerSessions {
+		if session.RoomID == roomID && session.Status == voice.ListenerSessionActive {
+			copy := *session
+			out = append(out, &copy)
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) ListActiveListenerSessionsByUser(_ context.Context, roomID, userID string) ([]*voice.ListenerSession, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []*voice.ListenerSession{}
+	for _, session := range s.listenerSessions {
+		if session.RoomID == roomID && session.UserID == userID && session.Status == voice.ListenerSessionActive {
+			copy := *session
+			out = append(out, &copy)
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) ListStaleListenerSessions(_ context.Context, cutoff time.Time, limit int) ([]*voice.ListenerSession, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []*voice.ListenerSession{}
+	for _, session := range s.listenerSessions {
+		if session.Status == voice.ListenerSessionActive && session.LastHeartbeatAt.Before(cutoff) {
+			copy := *session
+			out = append(out, &copy)
+			if limit > 0 && len(out) >= limit {
+				break
+			}
+		}
+	}
+	return out, nil
 }
 
 func (s *Store) CountActiveListeners(_ context.Context, roomID string) (int, error) {
@@ -141,6 +185,26 @@ func (s *Store) findSpeakerRequest(roomID, userID string, status voice.SpeakerRe
 		}
 	}
 	return nil, apperrors.ErrSpeakerRequestNotFound
+}
+
+func (s *Store) SaveSpeakingBlock(_ context.Context, block *voice.SpeakingBlock) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	copy := *block
+	s.speakingBlocks[block.ID] = &copy
+	return nil
+}
+
+func (s *Store) GetActiveSpeakingBlock(_ context.Context, roomID, userID string) (*voice.SpeakingBlock, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, block := range s.speakingBlocks {
+		if block.RoomID == roomID && block.UserID == userID && block.UnblockedAt == nil {
+			copy := *block
+			return &copy, nil
+		}
+	}
+	return nil, apperrors.ErrSpeakingBlockNotFound
 }
 
 func (s *Store) SaveRecording(_ context.Context, recording *voice.RoomRecording) error {

@@ -56,8 +56,8 @@ func NewRouter(service *voiceapp.Service, logger *slog.Logger, allowedOrigins []
 		r.Post("/rooms/{roomId}/speaker-requests/{requestId}/decline", api.declineSpeakerRequest)
 		r.Post("/rooms/{roomId}/speaker-session", api.createSpeakerSession)
 		r.Post("/rooms/{roomId}/participants/{userId}/revoke-speaker", api.revokeSpeaker)
-		r.Post("/rooms/{roomId}/participants/{userId}/block-speaking", api.notImplementedEvent)
-		r.Post("/rooms/{roomId}/participants/{userId}/unblock-speaking", api.notImplementedEvent)
+		r.Post("/rooms/{roomId}/participants/{userId}/block-speaking", api.blockSpeaking)
+		r.Post("/rooms/{roomId}/participants/{userId}/unblock-speaking", api.unblockSpeaking)
 
 		r.Post("/rooms/{roomId}/participants/{userId}/remove", api.removeParticipant)
 
@@ -375,6 +375,44 @@ func (a *API) revokeSpeaker(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
 
+func (a *API) blockSpeaking(w http.ResponseWriter, r *http.Request) {
+	var req actorRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	block, err := a.service.BlockSpeaking(r.Context(), voiceapp.SpeakingBlockCommand{
+		RoomID:        roomID(r),
+		ActorUserID:   userID(r, req.ActorUserID),
+		TargetUserID:  chi.URLParam(r, "userId"),
+		Reason:        req.Reason,
+		CorrelationID: correlationID(r),
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, block)
+}
+
+func (a *API) unblockSpeaking(w http.ResponseWriter, r *http.Request) {
+	var req actorRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	block, err := a.service.UnblockSpeaking(r.Context(), voiceapp.SpeakingBlockCommand{
+		RoomID:        roomID(r),
+		ActorUserID:   userID(r, req.ActorUserID),
+		TargetUserID:  chi.URLParam(r, "userId"),
+		Reason:        req.Reason,
+		CorrelationID: correlationID(r),
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, block)
+}
+
 func (a *API) removeParticipant(w http.ResponseWriter, r *http.Request) {
 	var req actorRequest
 	if !decodeJSON(w, r, &req) {
@@ -444,16 +482,12 @@ func (a *API) listRecordings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) recordingPlaybackURL(w http.ResponseWriter, r *http.Request) {
-	recording, err := a.service.GetRecording(r.Context(), chi.URLParam(r, "recordingId"))
+	result, err := a.service.RecordingPlaybackURL(r.Context(), roomID(r), chi.URLParam(r, "recordingId"), userID(r, r.URL.Query().Get("actorUserId")))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"recordingId": recording.ID,
-		"storage":     recording.Storage,
-		"playbackUrl": "", // Signed S3 URLs are added by the S3 gateway in the next integration step.
-	})
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (a *API) generateReport(w http.ResponseWriter, r *http.Request) {

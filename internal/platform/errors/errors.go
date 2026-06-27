@@ -12,6 +12,7 @@ var (
 	ErrInvalidRoomState        = errors.New("invalid room state")
 	ErrPermissionDenied        = errors.New("permission denied")
 	ErrSpeakerBlocked          = errors.New("speaker is blocked")
+	ErrSpeakingBlockNotFound   = errors.New("speaking block not found")
 	ErrSpeakerRequestNotFound  = errors.New("speaker request not found")
 	ErrListenerSessionNotFound = errors.New("listener session not found")
 	ErrRecordingNotFound       = errors.New("recording not found")
@@ -28,6 +29,7 @@ func HTTPStatus(err error) int {
 		return http.StatusBadRequest
 	case errors.Is(err, ErrRoomNotFound),
 		errors.Is(err, ErrSpeakerRequestNotFound),
+		errors.Is(err, ErrSpeakingBlockNotFound),
 		errors.Is(err, ErrListenerSessionNotFound),
 		errors.Is(err, ErrRecordingNotFound),
 		errors.Is(err, ErrReportNotFound):

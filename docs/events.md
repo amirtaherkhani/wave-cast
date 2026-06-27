@@ -37,4 +37,4 @@ Envelope:
 }
 ```
 
-Client event mapping is handled by the realtime dispatcher process. The current dispatcher process is scaffolded; the Kafka consumer and Centrifugo publish loop are the next integration step.
+Client event mapping is handled by the realtime dispatcher process. The dispatcher consumes Kafka as a consumer group, resolves channels, publishes client-friendly event names to Centrifugo, and commits Kafka offsets only after publish succeeds.

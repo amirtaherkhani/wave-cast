@@ -44,10 +44,11 @@ GET  /v1/realtime/token
 ```text
 cmd/api                     REST API process
 cmd/worker                  async worker process
-cmd/realtime-dispatcher     Kafka-to-Centrifugo dispatcher process
+cmd/realtime-dispatcher     Kafka-to-Centrifugo consumer process
 internal/domain/voice       domain types and event contracts
 internal/app/voiceapp       application services and commands
-internal/infra              MongoDB, Kafka, LiveKit, Centrifugo, media adapters
+internal/core/async         durable async job primitives
+internal/infra              MongoDB, Redis, Kafka, LiveKit, Centrifugo, S3, media adapters
 internal/transport/http     chi router and handlers
 deploy/docker-compose.yml   development dependency stack
 api/openapi.yaml            API contract

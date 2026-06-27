@@ -16,9 +16,12 @@ import (
 type Service struct {
 	store    Store
 	eventBus EventBus
+	presence PresenceStore
+	jobQueue JobQueue
 	liveKit  LiveKitTokenIssuer
 	realtime RealtimeTokenIssuer
 	media    MediaGateway
+	signer   RecordingURLSigner
 	logger   *slog.Logger
 	cfg      ServiceConfig
 }
@@ -41,6 +44,18 @@ func NewService(
 		logger:   logger,
 		cfg:      cfg,
 	}
+}
+
+func (s *Service) SetPresenceStore(presence PresenceStore) {
+	s.presence = presence
+}
+
+func (s *Service) SetJobQueue(jobQueue JobQueue) {
+	s.jobQueue = jobQueue
+}
+
+func (s *Service) SetRecordingURLSigner(signer RecordingURLSigner) {
+	s.signer = signer
 }
 
 func (s *Service) CreateRoom(ctx context.Context, cmd CreateRoomCommand) (*voice.Room, error) {
@@ -128,6 +143,14 @@ func (s *Service) FinishRoom(ctx context.Context, cmd FinishRoomCommand) (*voice
 	if err := s.publish(ctx, voice.EventRoomFinished, room.ID, cmd.ActorUserID, "", cmd.CorrelationID, room); err != nil {
 		return nil, err
 	}
+	s.enqueueBestEffort(ctx, string(voice.JobCloseRoomSessions), "room:"+room.ID+":close_sessions:v1", map[string]any{
+		"roomId":      room.ID,
+		"actorUserId": cmd.ActorUserID,
+	})
+	s.enqueueBestEffort(ctx, string(voice.JobGenerateRoomReport), "room:"+room.ID+":generate_report:v1", map[string]any{
+		"roomId":      room.ID,
+		"actorUserId": cmd.ActorUserID,
+	})
 	return room, nil
 }
 
@@ -136,13 +159,29 @@ func (s *Service) GetRoom(ctx context.Context, roomID string) (*voice.Room, erro
 }
 
 func (s *Service) ActiveCounts(ctx context.Context, roomID string) (ActiveCounts, error) {
-	listeners, err := s.store.CountActiveListeners(ctx, roomID)
-	if err != nil {
-		return ActiveCounts{}, err
-	}
-	liveKit, err := s.store.CountActiveParticipantSessions(ctx, roomID)
-	if err != nil {
-		return ActiveCounts{}, err
+	var (
+		listeners int
+		liveKit   int
+		err       error
+	)
+	if s.presence != nil {
+		listeners, err = s.presence.ActiveListenerCount(ctx, roomID)
+		if err != nil {
+			return ActiveCounts{}, err
+		}
+		liveKit, err = s.presence.ActiveParticipantCount(ctx, roomID)
+		if err != nil {
+			return ActiveCounts{}, err
+		}
+	} else {
+		listeners, err = s.store.CountActiveListeners(ctx, roomID)
+		if err != nil {
+			return ActiveCounts{}, err
+		}
+		liveKit, err = s.store.CountActiveParticipantSessions(ctx, roomID)
+		if err != nil {
+			return ActiveCounts{}, err
+		}
 	}
 	return ActiveCounts{
 		RoomID:      roomID,
@@ -186,6 +225,11 @@ func (s *Service) JoinRoom(ctx context.Context, cmd JoinRoomCommand) (*voice.Joi
 		if err := s.store.SaveParticipantSession(ctx, session); err != nil {
 			return nil, err
 		}
+		if s.presence != nil {
+			if err := s.presence.MarkParticipantActive(ctx, room.ID, session.ID, cmd.UserID, s.cfg.ListenerSessionTimeout); err != nil {
+				return nil, err
+			}
+		}
 		speaker, err := s.liveKit.IssueSpeakerToken(ctx, SpeakerTokenInput{
 			RoomName: room.LiveKitRoomName,
 			Identity: cmd.UserID,
@@ -214,6 +258,11 @@ func (s *Service) JoinRoom(ctx context.Context, cmd JoinRoomCommand) (*voice.Joi
 	if err := s.store.SaveListenerSession(ctx, session); err != nil {
 		return nil, err
 	}
+	if s.presence != nil {
+		if err := s.presence.MarkListenerActive(ctx, room.ID, session.ID, cmd.UserID, s.cfg.ListenerSessionTimeout); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.publish(ctx, voice.EventListenerSessionStarted, room.ID, cmd.UserID, "", cmd.CorrelationID, session); err != nil {
 		return nil, err
 	}
@@ -241,6 +290,11 @@ func (s *Service) ListenerHeartbeat(ctx context.Context, cmd ListenerHeartbeatCo
 	if err := s.store.SaveListenerSession(ctx, session); err != nil {
 		return nil, err
 	}
+	if s.presence != nil {
+		if err := s.presence.TouchListener(ctx, session.RoomID, session.ID, s.cfg.ListenerSessionTimeout); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.publish(ctx, voice.EventListenerHeartbeatReceived, session.RoomID, cmd.UserID, "", cmd.CorrelationID, session); err != nil {
 		return nil, err
 	}
@@ -264,6 +318,11 @@ func (s *Service) LeaveListener(ctx context.Context, cmd LeaveListenerCommand) (
 	if err := s.store.SaveListenerSession(ctx, session); err != nil {
 		return nil, err
 	}
+	if s.presence != nil {
+		if err := s.presence.MarkListenerInactive(ctx, session.RoomID, session.ID); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.publish(ctx, voice.EventListenerSessionLeft, session.RoomID, cmd.UserID, "", cmd.CorrelationID, session); err != nil {
 		return nil, err
 	}
@@ -285,6 +344,11 @@ func (s *Service) RequestToSpeak(ctx context.Context, cmd RequestToSpeakCommand)
 	}
 	if room.Status != voice.RoomStatusLive {
 		return nil, apperrors.ErrRoomNotLive
+	}
+	if _, err := s.store.GetActiveSpeakingBlock(ctx, room.ID, cmd.UserID); err == nil {
+		return nil, apperrors.ErrSpeakerBlocked
+	} else if !errors.Is(err, apperrors.ErrSpeakingBlockNotFound) {
+		return nil, err
 	}
 	if _, err := s.store.FindPendingSpeakerRequest(ctx, room.ID, cmd.UserID); err == nil {
 		return nil, apperrors.ErrConflict
@@ -344,6 +408,11 @@ func (s *Service) CreateSpeakerSession(ctx context.Context, cmd CreateSpeakerSes
 	if err := s.store.SaveParticipantSession(ctx, session); err != nil {
 		return nil, err
 	}
+	if s.presence != nil {
+		if err := s.presence.MarkParticipantActive(ctx, room.ID, session.ID, cmd.UserID, s.cfg.ListenerSessionTimeout); err != nil {
+			return nil, err
+		}
+	}
 	speaker, err := s.liveKit.IssueSpeakerToken(ctx, SpeakerTokenInput{
 		RoomName: room.LiveKitRoomName,
 		Identity: cmd.UserID,
@@ -377,6 +446,61 @@ func (s *Service) RevokeSpeaker(ctx context.Context, cmd RevokeSpeakerCommand) e
 	})
 }
 
+func (s *Service) BlockSpeaking(ctx context.Context, cmd SpeakingBlockCommand) (*voice.SpeakingBlock, error) {
+	room, err := s.store.GetRoom(ctx, cmd.RoomID)
+	if err != nil {
+		return nil, err
+	}
+	if !voice.RoleCanModerate(room.ResolveRole(cmd.ActorUserID)) {
+		return nil, apperrors.ErrPermissionDenied
+	}
+	if existing, err := s.store.GetActiveSpeakingBlock(ctx, room.ID, cmd.TargetUserID); err == nil {
+		return existing, nil
+	} else if !errors.Is(err, apperrors.ErrSpeakingBlockNotFound) {
+		return nil, err
+	}
+
+	block := &voice.SpeakingBlock{
+		ID:        ids.New("spblk"),
+		RoomID:    room.ID,
+		UserID:    cmd.TargetUserID,
+		BlockedBy: cmd.ActorUserID,
+		Reason:    strings.TrimSpace(cmd.Reason),
+		BlockedAt: time.Now().UTC(),
+	}
+	if err := s.store.SaveSpeakingBlock(ctx, block); err != nil {
+		return nil, err
+	}
+	if err := s.publish(ctx, voice.EventSpeakerBlocked, room.ID, cmd.ActorUserID, cmd.TargetUserID, cmd.CorrelationID, block); err != nil {
+		return nil, err
+	}
+	return block, nil
+}
+
+func (s *Service) UnblockSpeaking(ctx context.Context, cmd SpeakingBlockCommand) (*voice.SpeakingBlock, error) {
+	room, err := s.store.GetRoom(ctx, cmd.RoomID)
+	if err != nil {
+		return nil, err
+	}
+	if !voice.RoleCanModerate(room.ResolveRole(cmd.ActorUserID)) {
+		return nil, apperrors.ErrPermissionDenied
+	}
+	block, err := s.store.GetActiveSpeakingBlock(ctx, room.ID, cmd.TargetUserID)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	block.UnblockedAt = &now
+	block.UnblockedBy = cmd.ActorUserID
+	if err := s.store.SaveSpeakingBlock(ctx, block); err != nil {
+		return nil, err
+	}
+	if err := s.publish(ctx, voice.EventSpeakerUnblocked, room.ID, cmd.ActorUserID, cmd.TargetUserID, cmd.CorrelationID, block); err != nil {
+		return nil, err
+	}
+	return block, nil
+}
+
 func (s *Service) RemoveParticipant(ctx context.Context, cmd RemoveParticipantCommand) error {
 	room, err := s.store.GetRoom(ctx, cmd.RoomID)
 	if err != nil {
@@ -384,6 +508,26 @@ func (s *Service) RemoveParticipant(ctx context.Context, cmd RemoveParticipantCo
 	}
 	if !voice.RoleCanModerate(room.ResolveRole(cmd.ActorUserID)) {
 		return apperrors.ErrPermissionDenied
+	}
+	sessions, err := s.store.ListActiveListenerSessionsByUser(ctx, room.ID, cmd.TargetUserID)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	for _, session := range sessions {
+		session.Status = voice.ListenerSessionRemoved
+		session.LeftAt = &now
+		session.RemovedBy = cmd.ActorUserID
+		session.RemoveReason = strings.TrimSpace(cmd.Reason)
+		session.UpdatedAt = now
+		if err := s.store.SaveListenerSession(ctx, session); err != nil {
+			return err
+		}
+		if s.presence != nil {
+			if err := s.presence.MarkListenerInactive(ctx, room.ID, session.ID); err != nil {
+				return err
+			}
+		}
 	}
 	return s.publish(ctx, voice.EventModerationUserRemoved, room.ID, cmd.ActorUserID, cmd.TargetUserID, cmd.CorrelationID, map[string]any{
 		"roomId":       room.ID,
@@ -485,6 +629,36 @@ func (s *Service) GetRecording(ctx context.Context, recordingID string) (*voice.
 	return s.store.GetRecording(ctx, recordingID)
 }
 
+func (s *Service) RecordingPlaybackURL(ctx context.Context, roomID, recordingID, actorUserID string) (map[string]any, error) {
+	room, err := s.store.GetRoom(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+	if !voice.RoleCanModerate(room.ResolveRole(actorUserID)) {
+		return nil, apperrors.ErrPermissionDenied
+	}
+	recording, err := s.store.GetRecording(ctx, recordingID)
+	if err != nil {
+		return nil, err
+	}
+	if recording.RoomID != room.ID {
+		return nil, apperrors.ErrRecordingNotFound
+	}
+	playbackURL := ""
+	if s.signer != nil {
+		playbackURL, err = s.signer.PlaybackURL(ctx, recording.Storage, s.cfg.S3PresignedURLTTL)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return map[string]any{
+		"recordingId": recording.ID,
+		"storage":     recording.Storage,
+		"playbackUrl": playbackURL,
+		"expiresIn":   int(s.cfg.S3PresignedURLTTL.Seconds()),
+	}, nil
+}
+
 func (s *Service) GenerateReport(ctx context.Context, cmd GenerateReportCommand) (*voice.RoomReport, error) {
 	room, err := s.store.GetRoom(ctx, cmd.RoomID)
 	if err != nil {
@@ -518,6 +692,59 @@ func (s *Service) GenerateReport(ctx context.Context, cmd GenerateReportCommand)
 		return nil, err
 	}
 	return report, nil
+}
+
+func (s *Service) ExpireStaleListenerSessions(ctx context.Context, cutoff time.Time, limit int, correlationID string) (ExpireStaleListenerSessionsResult, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	sessions, err := s.store.ListStaleListenerSessions(ctx, cutoff, limit)
+	if err != nil {
+		return ExpireStaleListenerSessionsResult{}, err
+	}
+	expired := 0
+	now := time.Now().UTC()
+	for _, session := range sessions {
+		session.Status = voice.ListenerSessionExpired
+		session.LeftAt = &now
+		session.LeaveType = "heartbeat_timeout"
+		session.UpdatedAt = now
+		if err := s.store.SaveListenerSession(ctx, session); err != nil {
+			return ExpireStaleListenerSessionsResult{}, err
+		}
+		if s.presence != nil {
+			if err := s.presence.MarkListenerInactive(ctx, session.RoomID, session.ID); err != nil {
+				return ExpireStaleListenerSessionsResult{}, err
+			}
+		}
+		if err := s.publish(ctx, voice.EventListenerSessionExpired, session.RoomID, "", session.UserID, correlationID, session); err != nil {
+			return ExpireStaleListenerSessionsResult{}, err
+		}
+		expired++
+	}
+	return ExpireStaleListenerSessionsResult{Expired: expired}, nil
+}
+
+func (s *Service) CloseRoomSessions(ctx context.Context, roomID string, endedAt time.Time, correlationID string) error {
+	sessions, err := s.store.ListActiveListenerSessions(ctx, roomID)
+	if err != nil {
+		return err
+	}
+	for _, session := range sessions {
+		session.Status = voice.ListenerSessionLeft
+		session.LeftAt = &endedAt
+		session.LeaveType = "room_finished"
+		session.UpdatedAt = endedAt
+		if err := s.store.SaveListenerSession(ctx, session); err != nil {
+			return err
+		}
+		if s.presence != nil {
+			if err := s.presence.MarkListenerInactive(ctx, roomID, session.ID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Service) GetReport(ctx context.Context, roomID string) (*voice.RoomReport, error) {
@@ -670,6 +897,15 @@ func (s *Service) publish(ctx context.Context, eventType, roomID, actorUserID, t
 		return err
 	}
 	return nil
+}
+
+func (s *Service) enqueueBestEffort(ctx context.Context, jobType, idempotencyKey string, payload any) {
+	if s.jobQueue == nil {
+		return
+	}
+	if err := s.jobQueue.Enqueue(ctx, jobType, idempotencyKey, payload); err != nil {
+		s.logger.ErrorContext(ctx, "async job enqueue failed", "job_type", jobType, "idempotency_key", idempotencyKey, "error", err)
+	}
 }
 
 func uniqueStrings(values []string) []string {

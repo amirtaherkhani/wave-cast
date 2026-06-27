@@ -12,12 +12,15 @@ import (
 
 	"github.com/amirtaherkhani/wave-cast/internal/app/voiceapp"
 	"github.com/amirtaherkhani/wave-cast/internal/config"
+	coreasync "github.com/amirtaherkhani/wave-cast/internal/core/async"
 	"github.com/amirtaherkhani/wave-cast/internal/infra/centrifugo"
 	"github.com/amirtaherkhani/wave-cast/internal/infra/kafka"
 	"github.com/amirtaherkhani/wave-cast/internal/infra/livekit"
 	"github.com/amirtaherkhani/wave-cast/internal/infra/mediaorigin"
 	"github.com/amirtaherkhani/wave-cast/internal/infra/memory"
 	mongostore "github.com/amirtaherkhani/wave-cast/internal/infra/mongo"
+	redisinfra "github.com/amirtaherkhani/wave-cast/internal/infra/redis"
+	s3infra "github.com/amirtaherkhani/wave-cast/internal/infra/s3"
 	"github.com/amirtaherkhani/wave-cast/internal/platform/logger"
 	httptransport "github.com/amirtaherkhani/wave-cast/internal/transport/http"
 )
@@ -29,9 +32,13 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	store, closeStore := newStore(ctx, cfg, log)
+	store, asyncStore, closeStore := newStore(ctx, cfg, log)
 	if closeStore != nil {
 		defer closeStore()
+	}
+	presence, closePresence := newPresenceStore(ctx, cfg, log)
+	if closePresence != nil {
+		defer closePresence()
 	}
 	eventBus := newEventBus(ctx, cfg, log)
 	if closer, ok := eventBus.(interface{ Close() }); ok {
@@ -48,13 +55,23 @@ func main() {
 		voiceapp.ServiceConfig{
 			RealtimeURL:            cfg.Centrifugo.URL,
 			HeartbeatInterval:      cfg.Listener.HeartbeatInterval,
+			ListenerSessionTimeout: cfg.Listener.SessionTimeout,
 			RecordingEnabled:       cfg.Recording.Enabled,
 			RecordingRetentionDays: cfg.Recording.RetentionDays,
 			S3Bucket:               cfg.S3.Bucket,
 			S3Region:               cfg.S3.Region,
 			S3RecordingsPrefix:     cfg.S3.RecordingsPrefix,
+			S3PresignedURLTTL:      cfg.S3.PresignedURLTTL,
 		},
 	)
+	service.SetPresenceStore(presence)
+	service.SetJobQueue(coreasync.NewQueue(asyncStore, asyncConfig(cfg)))
+	signer, err := s3infra.NewSigner(ctx, cfg.S3)
+	if err != nil {
+		log.ErrorContext(ctx, "s3 signer unavailable", "error", err)
+		os.Exit(1)
+	}
+	service.SetRecordingURLSigner(signer)
 
 	handler := httptransport.NewRouter(service, log, cfg.HTTP.AllowedOrigins)
 	server := &http.Server{
@@ -96,7 +113,7 @@ func newEventBus(ctx context.Context, cfg config.Config, log *slog.Logger) voice
 	return bus
 }
 
-func newStore(ctx context.Context, cfg config.Config, log *slog.Logger) (voiceapp.Store, func()) {
+func newStore(ctx context.Context, cfg config.Config, log *slog.Logger) (voiceapp.Store, coreasync.Store, func()) {
 	switch cfg.StorageDriver {
 	case "mongo", "mongodb":
 		store, err := mongostore.Connect(ctx, cfg.Mongo)
@@ -105,7 +122,7 @@ func newStore(ctx context.Context, cfg config.Config, log *slog.Logger) (voiceap
 			os.Exit(1)
 		}
 		log.InfoContext(ctx, "mongo store connected", "database", cfg.Mongo.Database)
-		return store, func() {
+		return store, store.AsyncJobStore(), func() {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			if err := store.Disconnect(shutdownCtx); err != nil {
@@ -114,6 +131,36 @@ func newStore(ctx context.Context, cfg config.Config, log *slog.Logger) (voiceap
 		}
 	default:
 		log.InfoContext(ctx, "using in-memory store")
-		return memory.NewStore(), nil
+		return memory.NewStore(), coreasync.NewMemoryStore(), nil
+	}
+}
+
+func newPresenceStore(ctx context.Context, cfg config.Config, log *slog.Logger) (voiceapp.PresenceStore, func()) {
+	if !cfg.Redis.Enabled {
+		log.InfoContext(ctx, "redis disabled; using in-process presence store")
+		return redisinfra.NewNoopPresenceStore(), nil
+	}
+	client, err := redisinfra.Connect(ctx, cfg.Redis)
+	if err != nil {
+		log.ErrorContext(ctx, "redis unavailable", "error", err, "addr", cfg.Redis.Addr)
+		os.Exit(1)
+	}
+	log.InfoContext(ctx, "redis presence connected", "addr", cfg.Redis.Addr)
+	return redisinfra.NewPresenceStore(client), func() {
+		if err := client.Close(); err != nil {
+			log.Error("redis close failed", "error", err)
+		}
+	}
+}
+
+func asyncConfig(cfg config.Config) coreasync.Config {
+	return coreasync.Config{
+		WorkerConcurrency: cfg.Async.WorkerConcurrency,
+		JobMaxAttempts:    cfg.Async.JobMaxAttempts,
+		VisibilityTimeout: cfg.Async.JobVisibilityTimeout,
+		RetryBaseDelay:    cfg.Async.JobRetryBaseDelay,
+		RetryMaxDelay:     cfg.Async.JobRetryMaxDelay,
+		DeadLetterEnabled: cfg.Async.JobDeadLetterEnabled,
+		PollInterval:      time.Second,
 	}
 }

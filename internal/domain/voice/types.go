@@ -259,6 +259,17 @@ type SpeakerRequest struct {
 	DecisionReason string               `json:"decisionReason,omitempty" bson:"decisionReason,omitempty"`
 }
 
+type SpeakingBlock struct {
+	ID          string     `json:"id" bson:"_id"`
+	RoomID      string     `json:"roomId" bson:"roomId"`
+	UserID      string     `json:"userId" bson:"userId"`
+	BlockedBy   string     `json:"blockedBy" bson:"blockedBy"`
+	Reason      string     `json:"reason,omitempty" bson:"reason,omitempty"`
+	BlockedAt   time.Time  `json:"blockedAt" bson:"blockedAt"`
+	UnblockedBy string     `json:"unblockedBy,omitempty" bson:"unblockedBy,omitempty"`
+	UnblockedAt *time.Time `json:"unblockedAt,omitempty" bson:"unblockedAt,omitempty"`
+}
+
 type StorageObject struct {
 	Provider  string `json:"provider" bson:"provider"`
 	Bucket    string `json:"bucket" bson:"bucket"`
@@ -319,12 +330,38 @@ const (
 	EventListenerSessionStarted    = "voice.listener.session.started"
 	EventListenerHeartbeatReceived = "voice.listener.session.heartbeat_received"
 	EventListenerSessionLeft       = "voice.listener.session.left"
+	EventListenerSessionExpired    = "voice.listener.session.expired"
 	EventSpeakerRequested          = "voice.speaker.requested"
 	EventSpeakerApproved           = "voice.speaker.approved"
 	EventSpeakerDeclined           = "voice.speaker.declined"
 	EventSpeakerRevoked            = "voice.speaker.revoked"
+	EventSpeakerBlocked            = "voice.speaker.blocked"
+	EventSpeakerUnblocked          = "voice.speaker.unblocked"
 	EventModerationUserRemoved     = "voice.moderation.user_removed"
 	EventRecordingStarted          = "voice.recording.started"
 	EventRecordingCompleted        = "voice.recording.completed"
 	EventReportCompleted           = "voice.report.completed"
+)
+
+type AsyncJobType string
+
+const (
+	JobDispatchRealtimeEvent    AsyncJobType = "dispatch_realtime_event"
+	JobRetryRealtimeEvent       AsyncJobType = "retry_failed_realtime_event"
+	JobGenerateRoomReport       AsyncJobType = "generate_room_report"
+	JobRegenerateRoomReport     AsyncJobType = "regenerate_room_report"
+	JobExportRoomReport         AsyncJobType = "export_room_report"
+	JobFinalizeRecording        AsyncJobType = "finalize_recording"
+	JobExpireRecording          AsyncJobType = "expire_recording"
+	JobDeleteRecordingFile      AsyncJobType = "delete_recording_file"
+	JobGenerateRecordingURL     AsyncJobType = "generate_recording_playback_url"
+	JobExpireListenerSession    AsyncJobType = "expire_stale_listener_sessions"
+	JobCloseRoomSessions        AsyncJobType = "close_room_sessions"
+	JobSyncRoomActiveCounts     AsyncJobType = "sync_room_active_counts"
+	JobProcessLiveKitWebhook    AsyncJobType = "process_livekit_webhook"
+	JobProcessEgressWebhook     AsyncJobType = "process_egress_webhook"
+	JobSendNotification         AsyncJobType = "send_notification"
+	JobSyncAnalytics            AsyncJobType = "sync_analytics"
+	JobAggregateListenerMetrics AsyncJobType = "aggregate_listener_metrics"
+	JobAggregateSpeakerMetrics  AsyncJobType = "aggregate_speaker_metrics"
 )
