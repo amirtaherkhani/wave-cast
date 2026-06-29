@@ -1,0 +1,509 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: oklch(0.987 0.01 84);
+  --foreground: oklch(0.18 0.04 267);
+  --card: oklch(0.998 0.004 84);
+  --card-foreground: oklch(0.18 0.04 267);
+  --popover: oklch(0.998 0.004 84);
+  --popover-foreground: oklch(0.18 0.04 267);
+  --primary: oklch(0.59 0.26 289);
+  --primary-foreground: oklch(0.99 0.004 84);
+  --secondary: oklch(0.95 0.035 242);
+  --secondary-foreground: oklch(0.255 0.11 242);
+  --muted: oklch(0.963 0.012 84);
+  --muted-foreground: oklch(0.48 0.034 265);
+  --accent: oklch(0.64 0.17 244);
+  --accent-foreground: oklch(0.99 0.004 84);
+  --destructive: oklch(0.66 0.24 25);
+  --border: oklch(0.91 0.012 83);
+  --input: oklch(0.955 0.012 84);
+  --ring: oklch(0.67 0.16 244);
+  --chart-1: oklch(0.59 0.26 289);
+  --chart-2: oklch(0.64 0.18 239);
+  --chart-3: oklch(0.66 0.2 149);
+  --chart-4: oklch(0.65 0.17 224);
+  --chart-5: oklch(0.73 0.19 53);
+  --radius: 0.45rem;
+  --sidebar: oklch(0.998 0.004 84);
+  --sidebar-foreground: oklch(0.18 0.04 267);
+  --sidebar-primary: oklch(0.68 0.19 244);
+  --sidebar-primary-foreground: oklch(0.99 0.004 84);
+  --sidebar-accent: oklch(0.95 0.035 242);
+  --sidebar-accent-foreground: oklch(0.255 0.11 242);
+  --sidebar-border: oklch(0.91 0.012 83);
+  --sidebar-ring: oklch(0.67 0.16 244);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+  background: var(--background);
+  color: var(--foreground);
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  letter-spacing: 0;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.thin-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.thin-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.thin-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.admin-page-grid {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+@media (max-width: 1180px) {
+  .live-room-layout {
+    grid-template-columns: 250px minmax(620px, 1fr);
+  }
+
+  .live-room-aside {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .admin-page-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-sidebar {
+    display: none;
+  }
+
+  .live-room-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .live-room-left {
+    display: none;
+  }
+}
+
+@keyframes wavePulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scaleY(0.78);
+  }
+  50% {
+    opacity: 1;
+    transform: scaleY(1.05);
+  }
+}
+
+@keyframes speakerRingPulse {
+  0%,
+  100% {
+    transform: scale(0.82);
+    opacity: 0.3;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 0.85;
+  }
+}
+
+@keyframes micRingPulse {
+  0%,
+  100% {
+    transform: scale(0.88);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 0.9;
+  }
+}
+
+@keyframes micIconPulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.06);
+  }
+}
+
+@keyframes handShake {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  10% {
+    transform: rotate(-6deg);
+  }
+  20% {
+    transform: rotate(6deg);
+  }
+  30% {
+    transform: rotate(-6deg);
+  }
+  40% {
+    transform: rotate(6deg);
+  }
+  50% {
+    transform: rotate(-4deg);
+  }
+  60% {
+    transform: rotate(4deg);
+  }
+}
+
+@keyframes roomTimeTick {
+  0% {
+    opacity: 0.5;
+    transform: translateY(2px) scale(0.98);
+    letter-spacing: 0.01em;
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    letter-spacing: 0;
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    letter-spacing: 0;
+  }
+}
+
+@keyframes chatBubbleIn {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  65% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes chatBubbleInLeft {
+  0% {
+    opacity: 0;
+    transform: translate(-12px, 8px) scale(0.98);
+  }
+  65% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes chatBubbleInRight {
+  0% {
+    opacity: 0;
+    transform: translate(12px, 8px) scale(0.98);
+  }
+  65% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes reactionAddedPop {
+  0% {
+    transform: translateY(0) scale(0.78);
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 34%, transparent);
+  }
+  48% {
+    transform: translateY(-2px) scale(1.18);
+    box-shadow: 0 0 0 8px color-mix(in oklch, var(--primary) 0%, transparent);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 0%, transparent);
+  }
+}
+
+@keyframes reactionCountPop {
+  0% {
+    opacity: 0.35;
+    transform: translate(2px, -2px) scale(0.72);
+  }
+  60% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1.18);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes talkRingPulseOuter {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(0.84);
+    opacity: 0.25;
+  }
+  45% {
+    transform: translate(-50%, -50%) scale(1.14);
+    opacity: 0.95;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1.48);
+    opacity: 0;
+  }
+}
+
+@keyframes talkRingPulseInner {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(0.92);
+    opacity: 0.2;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.22);
+    opacity: 0.65;
+  }
+}
+
+@keyframes talkWavePulse {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.3;
+    border-style: dashed;
+    border-width: 2px;
+  }
+  30% {
+    transform: translate(-50%, -50%) scale(1.06);
+    opacity: 0.52;
+    border-style: solid;
+    border-width: 2px;
+  }
+  65% {
+    transform: translate(-50%, -50%) scale(1.02);
+    opacity: 0.68;
+    border-style: dashed;
+    border-width: 1.5px;
+  }
+  75% {
+    transform: translate(-50%, -50%) scale(1.03);
+    opacity: 0.62;
+  }
+}
+
+@layer utilities {
+  .speaker-talk-ring {
+    border: 2px solid rgba(16, 185, 129, 0.88);
+    background-color: rgba(16, 185, 129, 0.08);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.26);
+  }
+
+  .speaker-talk-ring--outer {
+    animation-name: talkRingPulseOuter;
+    animation-duration: 1.45s;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+  }
+
+  .speaker-talk-ring--inner {
+    animation-name: talkRingPulseInner;
+    animation-duration: 1.7s;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+    animation-delay: 180ms;
+  }
+
+  .speaker-talk-wave {
+    border: 2px dashed rgba(16, 185, 129, 0.72);
+    animation: talkWavePulse 2s ease-in-out infinite;
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.26);
+    mix-blend-mode: normal;
+  }
+
+  .speaker-ring-pulse {
+    animation: speakerRingPulse 1.3s ease-in-out infinite;
+  }
+
+  .mic-ring-pulse {
+    animation: micRingPulse 1.2s ease-in-out infinite;
+  }
+
+  .mic-icon-pulse {
+    animation: micIconPulse 0.8s ease-in-out infinite;
+  }
+
+  .hand-shake {
+    animation: handShake 0.8s ease-in-out infinite;
+    transform-origin: center;
+  }
+
+  .room-time-ticker {
+    animation: roomTimeTick 0.45s ease-out;
+    font-variant-numeric: tabular-nums;
+    will-change: transform, opacity, letter-spacing;
+  }
+
+  .chat-bubble-enter {
+    animation: chatBubbleIn 240ms cubic-bezier(0.2, 0.6, 0.2, 1) both;
+    will-change: transform, opacity;
+  }
+
+  .chat-bubble-enter-left {
+    animation: chatBubbleInLeft 240ms cubic-bezier(0.2, 0.6, 0.2, 1) both;
+    will-change: transform, opacity;
+  }
+
+  .chat-bubble-enter-right {
+    animation: chatBubbleInRight 240ms cubic-bezier(0.2, 0.6, 0.2, 1) both;
+    will-change: transform, opacity;
+  }
+
+  .reaction-added-pop {
+    animation: reactionAddedPop 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    will-change: transform, box-shadow;
+  }
+
+  .reaction-count-pop {
+    animation: reactionCountPop 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    will-change: transform, opacity;
+  }
+}
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+.dark {
+  --background: oklch(0.16 0.04 267);
+  --foreground: oklch(0.985 0.006 84);
+  --card: oklch(0.205 0.045 267);
+  --card-foreground: oklch(0.985 0.006 84);
+  --popover: oklch(0.205 0.045 267);
+  --popover-foreground: oklch(0.985 0.006 84);
+  --primary: oklch(0.69 0.23 289);
+  --primary-foreground: oklch(0.985 0.006 84);
+  --secondary: oklch(0.3 0.07 242);
+  --secondary-foreground: oklch(0.96 0.045 244);
+  --muted: oklch(0.27 0.035 267);
+  --muted-foreground: oklch(0.75 0.035 265);
+  --accent: oklch(0.76 0.15 244);
+  --accent-foreground: oklch(0.985 0.006 84);
+  --destructive: oklch(0.68 0.23 25);
+  --border: oklch(1 0 0 / 11%);
+  --input: oklch(1 0 0 / 13%);
+  --ring: oklch(0.72 0.16 244);
+  --chart-1: oklch(0.69 0.23 289);
+  --chart-2: oklch(0.72 0.15 238);
+  --chart-3: oklch(0.73 0.19 149);
+  --chart-4: oklch(0.7 0.15 228);
+  --chart-5: oklch(0.78 0.17 53);
+  --sidebar: oklch(0.205 0.045 267);
+  --sidebar-foreground: oklch(0.985 0.006 84);
+  --sidebar-primary: oklch(0.76 0.15 244);
+  --sidebar-primary-foreground: oklch(0.985 0.006 84);
+  --sidebar-accent: oklch(0.3 0.07 242);
+  --sidebar-accent-foreground: oklch(0.96 0.045 244);
+  --sidebar-border: oklch(1 0 0 / 11%);
+  --sidebar-ring: oklch(0.72 0.16 244);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
