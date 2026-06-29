@@ -45,3 +45,31 @@ curl -s http://localhost:8080/v1/rooms/{roomId}/speaker-session \
   -H 'Content-Type: application/json' \
   -d '{"userId":"usr_listener"}'
 ```
+
+Profile and device setup:
+
+```sh
+curl -s http://localhost:8080/v1/users/user_brian/profile
+```
+
+```sh
+curl -s -X PATCH http://localhost:8080/v1/users/user_brian/profile \
+  -H 'Content-Type: application/json' \
+  -d '{"displayName":"Brian Miller","username":"brian.miller","bio":"Host of practical AI rooms."}'
+```
+
+```sh
+curl -s -X PUT http://localhost:8080/v1/users/user_brian/profile/avatar \
+  -H 'Content-Type: application/json' \
+  -d '{"avatarUrl":"https://example.test/avatar.png","avatarFileName":"avatar.png"}'
+```
+
+```sh
+curl -s -X DELETE http://localhost:8080/v1/users/user_brian/profile/avatar
+```
+
+```sh
+curl -s -X PUT http://localhost:8080/v1/users/user_brian/device-settings \
+  -H 'Content-Type: application/json' \
+  -d '{"preferredMicrophoneId":"default","preferredSpeakerId":"default","noiseSuppression":true,"echoCancellation":true,"autoGainControl":true,"joinMuted":true}'
+```

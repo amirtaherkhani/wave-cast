@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/amirtaherkhani/wave-cast/internal/app/voiceapp"
 	apperrors "github.com/amirtaherkhani/wave-cast/internal/platform/errors"
@@ -19,6 +21,32 @@ type API struct {
 	service *voiceapp.Service
 	logger  *slog.Logger
 }
+
+type userProfile struct {
+	UserID         string         `json:"userId"`
+	DisplayName    string         `json:"displayName"`
+	Username       string         `json:"username"`
+	Role           string         `json:"role"`
+	Bio            string         `json:"bio"`
+	AvatarURL      string         `json:"avatarUrl,omitempty"`
+	AvatarFileName string         `json:"avatarFileName,omitempty"`
+	DeviceSettings deviceSettings `json:"deviceSettings"`
+	UpdatedAt      string         `json:"updatedAt"`
+}
+
+type deviceSettings struct {
+	PreferredMicrophoneID string `json:"preferredMicrophoneId,omitempty"`
+	PreferredSpeakerID    string `json:"preferredSpeakerId,omitempty"`
+	NoiseSuppression      bool   `json:"noiseSuppression"`
+	EchoCancellation      bool   `json:"echoCancellation"`
+	AutoGainControl       bool   `json:"autoGainControl"`
+	JoinMuted             bool   `json:"joinMuted"`
+}
+
+var (
+	userProfilesMu sync.Mutex
+	userProfiles   = map[string]userProfile{}
+)
 
 func NewRouter(service *voiceapp.Service, logger *slog.Logger, allowedOrigins []string) http.Handler {
 	api := &API{service: service, logger: logger}
@@ -37,6 +65,12 @@ func NewRouter(service *voiceapp.Service, logger *slog.Logger, allowedOrigins []
 	r.Get("/readyz", api.ready)
 
 	r.Route("/v1", func(r chi.Router) {
+		r.Get("/users/{userId}/profile", api.getUserProfile)
+		r.Patch("/users/{userId}/profile", api.updateUserProfile)
+		r.Put("/users/{userId}/profile/avatar", api.updateUserAvatar)
+		r.Delete("/users/{userId}/profile/avatar", api.removeUserAvatar)
+		r.Put("/users/{userId}/device-settings", api.updateUserDeviceSettings)
+
 		r.Post("/rooms", api.createRoom)
 		r.Get("/rooms/{roomId}", api.getRoom)
 		r.Post("/rooms/{roomId}/start", api.startRoom)
@@ -78,6 +112,122 @@ func NewRouter(service *voiceapp.Service, logger *slog.Logger, allowedOrigins []
 		r.Post("/webhooks/egress", api.acceptedWebhook)
 	})
 	return r
+}
+
+func defaultUserProfile(userID string) userProfile {
+	now := time.Now().UTC().Format(time.RFC3339)
+	profile := userProfile{
+		UserID:      userID,
+		DisplayName: userID,
+		Username:    strings.TrimPrefix(userID, "user_"),
+		Role:        "Listener",
+		Bio:         "",
+		DeviceSettings: deviceSettings{
+			NoiseSuppression: true,
+			EchoCancellation: true,
+			AutoGainControl:  true,
+			JoinMuted:        true,
+		},
+		UpdatedAt: now,
+	}
+
+	if userID == "user_brian" {
+		profile.DisplayName = "Brian Miller"
+		profile.Username = "brian.miller"
+		profile.Role = "Host"
+		profile.Bio = "Host of practical AI rooms, product sessions, and builder roundtables."
+		profile.AvatarURL = "https://i.pravatar.cc/160?img=12"
+	}
+
+	return profile
+}
+
+func getStoredUserProfile(userID string) userProfile {
+	userProfilesMu.Lock()
+	defer userProfilesMu.Unlock()
+
+	if profile, ok := userProfiles[userID]; ok {
+		return profile
+	}
+
+	profile := defaultUserProfile(userID)
+	userProfiles[userID] = profile
+	return profile
+}
+
+func saveStoredUserProfile(profile userProfile) userProfile {
+	userProfilesMu.Lock()
+	defer userProfilesMu.Unlock()
+
+	profile.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	userProfiles[profile.UserID] = profile
+	return profile
+}
+
+func (a *API) getUserProfile(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, getStoredUserProfile(chi.URLParam(r, "userId")))
+}
+
+type updateUserProfileRequest struct {
+	DisplayName string `json:"displayName"`
+	Username    string `json:"username"`
+	Bio         string `json:"bio"`
+}
+
+func (a *API) updateUserProfile(w http.ResponseWriter, r *http.Request) {
+	var req updateUserProfileRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	profile := getStoredUserProfile(chi.URLParam(r, "userId"))
+	if strings.TrimSpace(req.DisplayName) != "" {
+		profile.DisplayName = strings.TrimSpace(req.DisplayName)
+	}
+	if strings.TrimSpace(req.Username) != "" {
+		profile.Username = strings.TrimSpace(req.Username)
+	}
+	profile.Bio = strings.TrimSpace(req.Bio)
+
+	writeJSON(w, http.StatusOK, saveStoredUserProfile(profile))
+}
+
+type updateAvatarRequest struct {
+	AvatarURL      string `json:"avatarUrl"`
+	AvatarFileName string `json:"avatarFileName"`
+}
+
+func (a *API) updateUserAvatar(w http.ResponseWriter, r *http.Request) {
+	var req updateAvatarRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	profile := getStoredUserProfile(chi.URLParam(r, "userId"))
+	profile.AvatarURL = strings.TrimSpace(req.AvatarURL)
+	profile.AvatarFileName = strings.TrimSpace(req.AvatarFileName)
+
+	writeJSON(w, http.StatusOK, saveStoredUserProfile(profile))
+}
+
+func (a *API) removeUserAvatar(w http.ResponseWriter, r *http.Request) {
+	profile := getStoredUserProfile(chi.URLParam(r, "userId"))
+	profile.AvatarURL = ""
+	profile.AvatarFileName = ""
+
+	writeJSON(w, http.StatusOK, saveStoredUserProfile(profile))
+}
+
+func (a *API) updateUserDeviceSettings(w http.ResponseWriter, r *http.Request) {
+	var req deviceSettings
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	profile := getStoredUserProfile(chi.URLParam(r, "userId"))
+	profile.DeviceSettings = req
+
+	writeJSON(w, http.StatusOK, saveStoredUserProfile(profile))
 }
 
 func requestContext(next http.Handler) http.Handler {
